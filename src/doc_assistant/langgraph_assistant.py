@@ -100,16 +100,30 @@ def _is_ability_query(query: str) -> bool:
     return any(kw in q for kw in _ABILITY_KEYWORDS)
 
 
+def _dedupe_chunks(chunks: list[str]) -> list[str]:
+    """Preserve retrieval order while removing duplicate chunk text."""
+    deduped = []
+    seen = set()
+    for chunk in chunks:
+        if chunk in seen:
+            continue
+        seen.add(chunk)
+        deduped.append(chunk)
+    return deduped
+
+
 def retrieve_docs(state: AssistantState) -> dict:
     """Retrieve chunks from the shared index. No LLM call."""
     t0 = time.perf_counter()
     query = state["query"]
-    # Extension 2: route ability queries to the abilities index
+    chunks = shared_retrieve(query, top_k=5)
+
+    # Extension 2: ability queries need ability details without excluding
+    # move/type/strategy context from the main corpus.
     if _is_ability_query(query):
-        chunks = retrieve_abilities(query, top_k=5)
-        logger.info("  [retrieve-abilities] query=%r  chunks=%d", query, len(chunks))
-    else:
-        chunks = shared_retrieve(query, top_k=5)
+        ability_chunks = retrieve_abilities(query, top_k=5)
+        chunks = _dedupe_chunks([*chunks, *ability_chunks])
+        logger.info("  [retrieve-abilities] query=%r  chunks=%d", query, len(ability_chunks))
     elapsed = (time.perf_counter() - t0) * 1000
     logger.info("  [retrieve] query=%r  chunks=%d  %.0fms", query, len(chunks), elapsed)
     return {"retrieved_chunks": chunks}
