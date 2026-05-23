@@ -21,6 +21,7 @@ Where LlamaIndex falls short for this task:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from llama_index.core.memory import ChatMemoryBuffer
@@ -60,6 +61,31 @@ _META_RESPONSE = (
     "- Competitive concepts (STAB, entry hazards, setup sweeping, etc.)"
 )
 
+_ABILITY_KEYWORDS = ["ability", "abilities", "intimidate", "levitate", "protean",
+                     "drizzle", "drought", "regenerator", "magic guard", "speed boost"]
+
+
+def _is_meta_question(query: str) -> bool:
+    return query.strip().lower().rstrip("?!.") in _META_PHRASES
+
+
+def _is_ability_query(query: str) -> bool:
+    q = query.lower()
+    return any(kw in q for kw in _ABILITY_KEYWORDS)
+
+
+def _combine_responses(responses) -> str:
+    """Preserve response order while dropping exact duplicate text."""
+    combined = []
+    seen = set()
+    for response in responses:
+        text = str(response).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        combined.append(text)
+    return "\n\n".join(combined)
+
 
 def _build_router_query_engine():
     """Extension 2: RouterQueryEngine over main + abilities indices."""
@@ -82,6 +108,7 @@ def _build_router_query_engine():
 
 
 _router_engine = None
+_ability_engines = None
 
 
 def _get_router():
@@ -89,6 +116,19 @@ def _get_router():
     if _router_engine is None:
         _router_engine = _build_router_query_engine()
     return _router_engine
+
+
+def _get_ability_engines():
+    """Return query engines for deterministic main+abilities retrieval."""
+    global _ability_engines
+    if _ability_engines is None:
+        main_index = get_index()
+        abilities_index = get_abilities_index()
+        _ability_engines = (
+            main_index.as_query_engine(similarity_top_k=_TOP_K, llm=_LLM),
+            abilities_index.as_query_engine(similarity_top_k=_TOP_K, llm=_LLM),
+        )
+    return _ability_engines
 
 
 def _get_engine(session_id: str):
@@ -112,7 +152,7 @@ def _get_engine(session_id: str):
 async def ask(query: str, session_id: str = "default") -> str:
     """Ask a question. Returns the answer string."""
     # Extension 1: skip retrieval for meta-questions
-    if query.strip().lower().rstrip("?!.") in _META_PHRASES:
+    if _is_meta_question(query):
         return _META_RESPONSE
 
     engine = _get_engine(session_id)
@@ -122,9 +162,19 @@ async def ask(query: str, session_id: str = "default") -> str:
 
 
 async def ask_with_routing(query: str) -> str:
-    """Extension 2: ask using the RouterQueryEngine (no multi-turn memory)."""
-    if query.strip().lower().rstrip("?!.") in _META_PHRASES:
+    """Extension 2: ask using routed retrieval (no multi-turn memory)."""
+    if _is_meta_question(query):
         return _META_RESPONSE
+
+    if _is_ability_query(query):
+        # Hybrid ability questions need move/type/strategy context from the
+        # main corpus as well as focused details from the abilities index.
+        main_engine, abilities_engine = _get_ability_engines()
+        responses = await asyncio.gather(
+            main_engine.aquery(query),
+            abilities_engine.aquery(query),
+        )
+        return _combine_responses(responses)
 
     router = _get_router()
     response = await router.aquery(query)
