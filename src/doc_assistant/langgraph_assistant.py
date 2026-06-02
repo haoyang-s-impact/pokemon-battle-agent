@@ -20,6 +20,7 @@ Where LangGraph falls short for this task:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Annotated, TypedDict
@@ -168,6 +169,7 @@ def build_graph():
 
 
 _graph = None
+_session_locks: dict[str, asyncio.Lock] = {}
 
 
 def get_graph():
@@ -177,6 +179,12 @@ def get_graph():
     return _graph
 
 
+def _get_session_lock(session_id: str) -> asyncio.Lock:
+    if session_id not in _session_locks:
+        _session_locks[session_id] = asyncio.Lock()
+    return _session_locks[session_id]
+
+
 # ---------------------------------------------------------------------------
 # Public interface
 # ---------------------------------------------------------------------------
@@ -184,8 +192,9 @@ def get_graph():
 async def ask(query: str, session_id: str = "default") -> str:
     """Ask a question. Returns the answer string."""
     graph = get_graph()
-    result = await graph.ainvoke(
-        {"query": query},
-        config={"configurable": {"thread_id": session_id}},
-    )
+    async with _get_session_lock(session_id):
+        result = await graph.ainvoke(
+            {"query": query},
+            config={"configurable": {"thread_id": session_id}},
+        )
     return result["answer"]

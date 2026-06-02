@@ -21,6 +21,7 @@ Where LlamaIndex falls short for this task:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from llama_index.core.memory import ChatMemoryBuffer
@@ -47,6 +48,7 @@ _SYSTEM_PROMPT = (
 
 _sessions: dict[str, ChatMemoryBuffer] = {}
 _engines: dict[str, object] = {}
+_session_locks: dict[str, asyncio.Lock] = {}
 
 # Extension 1: meta-question detection (same logic, applied as pre-processing)
 _META_PHRASES = ["what can you help me with", "what do you know", "help", "hello", "hi"]
@@ -109,14 +111,21 @@ def _get_engine(session_id: str):
     return _engines[session_id]
 
 
+def _get_session_lock(session_id: str) -> asyncio.Lock:
+    if session_id not in _session_locks:
+        _session_locks[session_id] = asyncio.Lock()
+    return _session_locks[session_id]
+
+
 async def ask(query: str, session_id: str = "default") -> str:
     """Ask a question. Returns the answer string."""
     # Extension 1: skip retrieval for meta-questions
     if query.strip().lower().rstrip("?!.") in _META_PHRASES:
         return _META_RESPONSE
 
-    engine = _get_engine(session_id)
-    response = await engine.achat(query)
+    async with _get_session_lock(session_id):
+        engine = _get_engine(session_id)
+        response = await engine.achat(query)
     logger.info("  [llamaindex] response length=%d", len(str(response)))
     return str(response)
 
