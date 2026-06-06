@@ -7,3 +7,5 @@ llama-index-embeddings-huggingface
 llama-index-llms-openai
 sentence-transformers
 python-dotenv
+poke-env
+langsmith
