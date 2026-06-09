@@ -21,6 +21,7 @@ Where LangGraph falls short for this task:
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Annotated, TypedDict
 
@@ -168,12 +169,15 @@ def build_graph():
 
 
 _graph = None
+_graph_lock = threading.Lock()
 
 
 def get_graph():
     global _graph
     if _graph is None:
-        _graph = build_graph()
+        with _graph_lock:
+            if _graph is None:
+                _graph = build_graph()
     return _graph
 
 
