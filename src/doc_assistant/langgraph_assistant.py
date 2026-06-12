@@ -34,6 +34,8 @@ from src.doc_assistant.shared.indexer import retrieve as shared_retrieve, retrie
 
 logger = logging.getLogger(__name__)
 
+_MAX_HISTORY_MESSAGES = 12
+
 SYSTEM_PROMPT = (
     "You are a Pokemon battle strategy assistant. Answer questions about "
     "Pokemon types, moves, and competitive strategy using the provided context. "
@@ -46,8 +48,13 @@ SYSTEM_PROMPT = (
 # State
 # ---------------------------------------------------------------------------
 
+def _add_trimmed_messages(left, right) -> list[BaseMessage]:
+    """Append messages using LangGraph's reducer, then keep recent history bounded."""
+    return add_messages(left, right)[-_MAX_HISTORY_MESSAGES:]
+
+
 class AssistantState(TypedDict):
-    messages: Annotated[list[BaseMessage], add_messages]
+    messages: Annotated[list[BaseMessage], _add_trimmed_messages]
     query: str
     retrieved_chunks: list[str]
     answer: str
