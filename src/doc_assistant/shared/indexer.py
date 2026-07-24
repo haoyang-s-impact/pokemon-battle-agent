@@ -31,7 +31,9 @@ _ABILITIES_STORAGE_DIR = _PROJECT_ROOT / "storage_abilities"
 
 def _build_index() -> VectorStoreIndex:
     Settings.embed_model = HuggingFaceEmbedding(model_name=_EMBED_MODEL_NAME)
-    Settings.llm = None  # indexing does not need an LLM
+    # Do not set Settings.llm = None: LlamaIndex resolves None to MockLLM and
+    # poisons Settings.prompt_helper to a ~3900-token window, which later crashes
+    # multi-turn LlamaIndex synthesis when chat history approaches the memory cap.
 
     documents = SimpleDirectoryReader(str(_DATA_DIR)).load_data()
     splitter = SentenceSplitter(chunk_size=_CHUNK_SIZE, chunk_overlap=_CHUNK_OVERLAP)
@@ -44,7 +46,6 @@ def _build_index() -> VectorStoreIndex:
 
 def _load_index() -> VectorStoreIndex:
     Settings.embed_model = HuggingFaceEmbedding(model_name=_EMBED_MODEL_NAME)
-    Settings.llm = None
 
     storage_context = StorageContext.from_defaults(persist_dir=str(_STORAGE_DIR))
     return load_index_from_storage(storage_context)
@@ -77,7 +78,6 @@ def retrieve(query: str, top_k: int = _DEFAULT_TOP_K) -> list[str]:
 
 def _build_abilities_index() -> VectorStoreIndex:
     Settings.embed_model = HuggingFaceEmbedding(model_name=_EMBED_MODEL_NAME)
-    Settings.llm = None
 
     abilities_file = _DATA_DIR / "abilities.md"
     documents = SimpleDirectoryReader(input_files=[str(abilities_file)]).load_data()
@@ -97,7 +97,6 @@ def get_abilities_index() -> VectorStoreIndex:
 
     if (_ABILITIES_STORAGE_DIR / "docstore.json").exists():
         Settings.embed_model = HuggingFaceEmbedding(model_name=_EMBED_MODEL_NAME)
-        Settings.llm = None
         sc = StorageContext.from_defaults(persist_dir=str(_ABILITIES_STORAGE_DIR))
         _abilities_index = load_index_from_storage(sc)
     else:
