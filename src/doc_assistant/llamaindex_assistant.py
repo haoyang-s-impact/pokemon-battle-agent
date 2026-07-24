@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import logging
 
+from llama_index.core import Settings
+from llama_index.core.indices.prompt_helper import ChatPromptHelper, PromptHelper
 from llama_index.core.memory import ChatMemoryBuffer
 from llama_index.llms.openai import OpenAI
 
@@ -37,6 +39,19 @@ logger = logging.getLogger(__name__)
 _LLM = OpenAI(model="gpt-4o-mini", temperature=0)
 _TOP_K = 5
 _MEMORY_TOKEN_LIMIT = 3000
+
+
+def _configure_llama_settings() -> None:
+    """Bind global LlamaIndex Settings to the real chat LLM.
+
+    CompactAndRefine prefers Settings.prompt_helper over the engine LLM's
+    metadata. If Settings.llm was left unset (or set to None → MockLLM by an
+    older indexer path), the helper keeps a ~3900-token window and multi-turn
+    synthesis raises ValueError once chat history nears MEMORY_TOKEN_LIMIT.
+    """
+    Settings.llm = _LLM
+    Settings.prompt_helper = PromptHelper.from_llm_metadata(_LLM.metadata)
+    Settings.chat_prompt_helper = ChatPromptHelper.from_llm_metadata(_LLM.metadata)
 
 _SYSTEM_PROMPT = (
     "You are a Pokemon battle strategy assistant. Answer questions about "
@@ -115,6 +130,7 @@ async def ask(query: str, session_id: str = "default") -> str:
     if query.strip().lower().rstrip("?!.") in _META_PHRASES:
         return _META_RESPONSE
 
+    _configure_llama_settings()
     engine = _get_engine(session_id)
     response = await engine.achat(query)
     logger.info("  [llamaindex] response length=%d", len(str(response)))
@@ -126,6 +142,7 @@ async def ask_with_routing(query: str) -> str:
     if query.strip().lower().rstrip("?!.") in _META_PHRASES:
         return _META_RESPONSE
 
+    _configure_llama_settings()
     router = _get_router()
     response = await router.aquery(query)
     return str(response)
